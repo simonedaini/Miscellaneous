@@ -21,9 +21,9 @@ async def scripting():
     # sample login
     global mythic_instance
     mythic_instance = mythic_rest.Mythic(
-        username="admin",
-        password="admin",
-        server_ip="192.168.1.11",
+        username="mythic_admin",
+        password="jkeRnsLe29QdDdAKUNR0FeBHo8Njcg",
+        server_ip="192.168.1.52",
         server_port="7443",
         ssl=True,
         global_timeout=-1,
