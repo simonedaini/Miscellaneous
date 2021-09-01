@@ -12,6 +12,8 @@ import hashlib
 from datetime import datetime
 from mythic import mythic_rest
 from termcolor import colored
+import socket
+import subprocess
 
 
 
@@ -19,11 +21,24 @@ running_callbacks = []
 
 async def scripting():
     # sample login
+    pwd = "bubiman10"
+    cmd = "../mythic-cli config get MYTHIC_ADMIN_USER"
+    with_password = "echo {} | sudo -S {}".format(pwd, cmd)
+    p = subprocess.Popen(with_password, shell=True, stdout=subprocess.PIPE)
+    out, err = p.communicate()
+    admin_user = out.decode().split("=")[1].strip()
+
+    cmd = "../mythic-cli config get MYTHIC_ADMIN_PASSWORD"
+    with_password = "echo {} | sudo -S {}".format(pwd, cmd)
+    p = subprocess.Popen(with_password, shell=True, stdout=subprocess.PIPE)
+    out, err = p.communicate()
+    admin_password = out.decode().split("=")[1].strip()
+
     global mythic_instance
     mythic_instance = mythic_rest.Mythic(
-        username="mythic_admin",
-        password="jkeRnsLe29QdDdAKUNR0FeBHo8Njcg",
-        server_ip="192.168.1.52",
+        username=admin_user,
+        password=admin_password,
+        server_ip=socket.gethostbyname(socket.gethostname()),
         server_port="7443",
         ssl=True,
         global_timeout=-1,
