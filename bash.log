@@ -1,0 +1,6 @@
+]0;simone@simone-Z390-UD: ~/tesi/Mythic/Miscellaneous[01;32msimone@simone-Z390-UD[00m:[01;34m~/tesi/Mythic/Miscellaneous[00m$ sshuttle -r s.daini8@131.114.22.159 --dns -x 131.114.22.159 0/0
+sshuttle -r s.daini8@131.114.22.159 --dns -x 131.114.22.159 0/0
+[local sudo] Password: bubiman10
+
+assembler.py:3: DeprecationWarning: the imp module is deprecated in favour of importlib; see the module's documentation for alternative uses
+client: Connected.
