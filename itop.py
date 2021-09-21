@@ -240,6 +240,13 @@ def merge_link(link1, link2, debug=False):
         link2 = ast.literal_eval(link2) 
 
     t = get_compatibility(M, link1, link2)
+    if t == "-":
+        t2 = get_compatibility(M, link2, link1)
+        if t2 != "-" and t2 != None:
+            t = t2
+        else:
+            sys.exit("Error compatibility")
+
     type1 = get_edge_type(link1)
     type2 = get_edge_type(link2)
     selected = None
@@ -270,15 +277,15 @@ def merge_link(link1, link2, debug=False):
                 print("\tUpdated edge = {}".format(selected))
             return selected
         elif selected[0]["type"] != t.split("-")[0] and selected[1]["type"] == t.split("-")[1]:
+            print("T = {}".format(t))
             selected[0]["type"] = t.split("-")[0]
-            selected[0]["ip"] = eval("{}_counter".format(t.split("-")[1].lower()))
+            selected[0]["ip"] = eval("{}_counter".format(t.split("-")[0].lower()))
             eval("{}_counter += 1".format(t.split("-")[1].lower()))
             if not debug:
                 print("\tUpdated edge = {}".format(selected))
             return selected
         else:
-            t = t[::-1]
-
+            t = "{}-{}".format(t.split("-")[1], t.split("-")[0])
         
 
 
@@ -293,7 +300,11 @@ def merge_links(paths, link1, link2, debug=False):
     t = get_compatibility(M, link1, link2)
     types = t.split("-")
     if t == "-":
-        print("Cannot merge {} and {}, incompatible types".format(link1, link2))
+        t2 = get_compatibility(M, link2, link1)
+        if t2 != "-" and t2 != None:
+            t = t2
+        else:
+            print("Cannot merge {} and {}, incompatible types".format(link1, link2))
 
     new_link = merge_link(link1, link2, debug)
     for path in paths:
@@ -361,23 +372,26 @@ def get_compatibility(M, link1, link2):
     t = ""
     for i in range(8):
         try:
+            spl1 = type1.split("-")
+            spl2 = type2.split("-")
+            print("Attempt {} {}".format(type1, type2))
             t = M[type1][row.index(type2)]
         except:
             if i % 4 == 0:
-                type1 = type1.split("-")[1] + "-" + type1.split("-")[0]
+                type1 = spl1[1] + "-" + spl1[0]
             if i % 4 == 1:
-                type2 = type2.split("-")[1] + "-" + type2.split("-")[0]
+                type2 = spl2[1] + "-" + spl2[0]
             if i % 4 == 2:
-                type1 = type1.split("-")[1] + "-" + type1.split("-")[0]
-                type2 = type2.split("-")[1] + "-" + type2.split("-")[0]
+                type1 = spl1[1] + "-" + spl1[0]
             if i % 4 == 3:
                 aux = type1
                 type1 = type2
                 type2 = aux
         
         if t != None and t != "" and t != "-":
+            print("Found {}".format(t))
             return t
-
+    print("Not Found {}".format(t))
     return "-"
 
 
@@ -425,12 +439,18 @@ def create_merge_options(paths):
     for link1 in edges:
         for link2 in edges:
             if link1 != link2:
+                t1 = get_edge_type(link1)
+                t2 = get_edge_type(link2)
+                
                 compatibility = get_compatibility(M, link1, link2)
+                if compatibility == "-":
+                    c2 = get_compatibility(M, link2, link1)
+                    if c2 != None and c2 != "-":
+                        compatibility = c2
                 trace = trace_preservation(paths, link1, link2)
-                distance = None
+                distance = False
                 if compatibility != "-" and trace:
                     distance = distance_preservation(paths, monitors, link1, link2)
-
                 if compatibility != "-" and trace and distance:
                     if str(link1) not in merge_options:
                         merge_options[str(link1)] = []
@@ -511,40 +531,24 @@ def update_merge_options(merge_options, link1, link2):
     for key in merge_options:
         if str(key) != str(link1) and key != str(link2):
             if link1 in merge_options[key] and link2 in merge_options[key]:
-                print("\tKey {} has both {} and {}".format(key, link1, link2))
                 options = merge_options[key].copy()
                 options.remove(link2)
                 options.remove(link1)
                 options.append(new_link)
                 if options != []:
-                    print("\t\tRemoving {}".format(link2))
-                    print("\t\tSobstituting {} -> {}".format(link1, new_link))
                     new_options[key] = options
-                    print("\t\tFinal Options = {}\n".format(new_options[key]))
-                else:
-                    print("\t\tPOP key {}, empty options\n".format(key))
             else:
-                print("\tKey {} does NOT have both {} and {}".format(key, link1, link2))
                 if link1 in merge_options[key]:
                     options = merge_options[key].copy()
                     options.remove(link1)
                     if options != []:
-                        print("\t\tRemoving {}".format(link1))
                         new_options[key] = options
-                        print("\t\tFinal Options = {}\n".format(new_options[key]))
-                    else:
-                        print("\t\tPOP key {}, empty options\n".format(key))
                 if link2 in merge_options[key]:
                     options = merge_options[key].copy()
                     options.remove(link2)
                     if options != []:
                         new_options[key] = options
-                        print("\t\tRemoving {} -> {}".format(key, link2))
-                        print("\t\tFinal Options = {}\n".format(new_options[key]))
-                    else:
-                        print("\t\tPOP key {}, empty options\n".format(key))
                 else:
-                    print("\tKey {} has NOT either {} or {}".format(key, link1, link2))
                     options = merge_options[key].copy()
                     if options != []:
                         new_options[key] = options
@@ -563,12 +567,12 @@ def update_merge_options(merge_options, link1, link2):
 
 
 def print_merge_options(merge_options):
-    print("MERGE OPTIONS:")
+    print("\n\tMERGE OPTIONS:")
     if merge_options == None:
-        print("MERGE OPTIONS None")
+        print("\t\tMERGE OPTIONS None")
         return
     for node in merge_options:
-        print("\t{} --> {}".format(node, merge_options[node]))
+        print("\t\t{} --> {}".format(node, merge_options[node]))
     print("\n")
 
 
@@ -576,13 +580,14 @@ def print_merge_options(merge_options):
 def check_consistency(paths):
     global nc_counter
 
-    update = []
+    update = {}
 
     for path in paths:
         for i in range(len(path) - 1):
             if path[i]["type"] == "B" and path[i+1]["type"] == "HID":
-                print("Found inconsistency between {} and {}".format(path[i], path[i+1]))
-                update = path[i]["ip"]
+                update[path[i]["ip"]] = "NC{}".format(nc_counter)
+                nc_counter += 1
+
 
     new_paths = []
     for path in paths:
@@ -591,7 +596,7 @@ def check_consistency(paths):
             if path[i]["ip"] in update:
                 r = {
                     "type": "NC",
-                    "ip": "NC{}".format(nc_counter)
+                    "ip": update[path[i]["ip"]]
                 }
                 nc_counter += 1
                 p.append(r)
@@ -601,31 +606,61 @@ def check_consistency(paths):
     return new_paths
 
 M = get_matrix("/home/simone/Scrivania/Matrice.ods")
-merge_options = create_merge_options(paths)
-print_merge_options(merge_options)
+# merge_options = create_merge_options(paths)
+# print("Start")
+# print_merge_options(merge_options)
 
-G = create_graph(paths)
-draw_graph(G)
-save_graph(G, "VT")
+# G = create_graph(paths)
+# draw_graph(G)
+# save_graph(G, "VT")
 
-i = 1
-sync = i
-while True and sync == i:
-    merge_options = create_merge_options(paths)
-    sync += 1
-    while merge_options:
-        print("Iteration {}".format(i))
-        i += 1
+# i = 1
+# sync = i
+# for i in range(10):
+#     paths = check_consistency(paths)
+#     merge_options = create_merge_options(paths)
+#     sync += 1
+#     while merge_options != {}:
+#         if merge_options == None:
+#             sys.exit("Error, Merge option None")
+#         print("Iteration {}".format(i))
+#         i += 1
 
-        link1 = get_min_key(merge_options)
-        link2 = merge_options[link1][0]
-        print("\tMerging {} with {}".format(link1, link2))
-        print("\tCompatibility = {}".format(get_compatibility(M, link1,  link2)))    
-        paths = merge_links(paths, link1, link2)
-        merge_options = update_merge_options(merge_options, link1, link2)
-        print_merge_options(merge_options)
-    paths = check_consistency(paths)
+#         link1 = get_min_key(merge_options)
+#         link2 = merge_options[link1][0]
+#         print("\tMerging {} with {}".format(link1, link2))
+#         print("\tCompatibility = {}".format(get_compatibility(M, link1,  link2)))    
+#         paths = merge_links(paths, link1, link2)
+#         merge_options = update_merge_options(merge_options, link1, link2)
+#         print_merge_options(merge_options)
+#     paths = check_consistency(paths)
 
-G = create_graph(paths)
-draw_graph(G)
-save_graph(G, "MT")
+
+# print("Final Iteration")
+# paths = check_consistency(paths)
+# merge_options = create_merge_options(paths)
+# print_paths(paths)
+# print_merge_options(merge_options)
+
+# G = create_graph(paths)
+# draw_graph(G)
+# save_graph(G, "MT")
+
+# [{'type': 'R', 'ip': '1.1.1.1'}, {'type': 'NC', 'ip': 'NC3'}, {'type': 'HID', 'ip': 'HID1'}, {'type': 'NC', 'ip': 'NC2'}, {'type': 'R', 'ip': '2.2.2.2'}]
+# [{'type': 'R', 'ip': '1.1.1.1'}, {'type': 'NC', 'ip': 'NC3'}, {'type': 'R', 'ip': '6.6.6.6'}, {'type': 'R', 'ip': '3.3.3.3'}]
+# [{'type': 'R', 'ip': '1.1.1.1'}, {'type': 'A', 'ip': 'A1'}, {'type': 'R', 'ip': '4.4.4.4'}]
+# [{'type': 'R', 'ip': '1.1.1.1'}, {'type': 'A', 'ip': 'A1'}, {'type': 'R', 'ip': '5.5.5.5'}]
+# [{'type': 'R', 'ip': '2.2.2.2'}, {'type': 'B', 'ip': 'B2'}, {'type': 'R', 'ip': '6.6.6.6'}, {'type': 'R', 'ip': '3.3.3.3'}]
+# [{'type': 'R', 'ip': '2.2.2.2'}, {'type': 'B', 'ip': 'B3'}, {'type': 'R', 'ip': '5.5.5.5'}, {'type': 'A', 'ip': 'A1'}, {'type': 'R', 'ip': '4.4.4.4'}]
+# [{'type': 'R', 'ip': '4.4.4.4'}, {'type': 'A', 'ip': 'A1'}, {'type': 'R', 'ip': '5.5.5.5'}]
+
+link1 = ({'type': 'NC', 'ip': 'NC3'}, {'type': 'HID', 'ip': 'HID1'})
+link2 = ({'type': 'NC', 'ip': 'NC3'}, {'type': 'R', 'ip': '6.6.6.6'})
+link3 = ({'type': 'HID', 'ip': 'HID1'}, {'type': 'NC', 'ip': 'NC3'})
+t = get_compatibility(M, link1, link2)
+print(t)
+print("*******\n")
+t2 = get_compatibility(M, link2, link1)
+print("*******\n")
+print(t)
+print(t2)
