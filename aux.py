@@ -15,6 +15,7 @@ from termcolor import colored
 import socket
 import subprocess
 from multiprocessing import Process
+import shutil
 
 
 
@@ -53,6 +54,11 @@ async def scripting():
     await mythic_instance.listen_for_new_responses(handle_resp)
     print("[+] Listening for new tasks")
     await mythic_instance.listen_for_new_tasks(handle_task)
+
+
+    file_name = "topology/"
+    if os.path.exists(file_name):
+        shutil.rmtree(file_name)
     
     
 async def handle_resp(token, message):
@@ -73,15 +79,100 @@ async def handle_resp(token, message):
     if message.task.command.cmd == "trace":
         trace(message)
         
-
-
     if message.task.command.cmd == "code":
-        code(message)
+        await code(message)
+
         
+async def handle_task(mythic, message):
+    #print(message)
+    # await mythic_rest.json_print(message)
+
+    if message.command.cmd == "parallel" and message.status == "completed":
+        await parallel(message)
 
 
 def virtual_topology(public_ip):
     print("[+] Creating virtual topology of {}".format(public_ip))
+
+    try:
+        file_name = "topology/hosts/" + public_ip
+        hosts_file = open(file_name)
+    except:
+        print(colored("Unable to open " + file_name, "red"))
+    hosts = hosts_file.read().split()
+    topo = {}
+    x = [0]
+    done = set()
+    traces = {}
+
+    for h1 in hosts:
+        for h2 in hosts:
+            if h1 != h2:
+                traces[h1+h2] = []
+                if get_answer_from_dest(public_ip, h1, h2):
+                    add_routers(topo, h1, h2, x, alias, traces, 100, False)
+                
+
+
+
+
+def get_answer_from_dest(public_ip, host1, host2):
+    count = len(open("traceroutes/" + public_ip + "/" + host1 + "-" + host2).readlines())
+    if count <= 30:
+        return True
+    else:
+        return False
+
+def add_all_routers(topo, public_ip, host1, host2, blocking_case):
+    f = open("topology/traceroutes/{}/{}-{}".format(public_ip, host1, host2, "r"))
+    lines = f.readlines()
+    scr = None
+    dst = None
+    for i in range(1, len(lines)-1):
+        src = get_router(lines[i])
+        dst = get_router(lines[i+1])
+    
+
+    
+
+
+def get_router(trace):
+    i = 1
+    while  i <= 3 and trace[i]=='*':
+        i=i+1
+    if i > 3:
+        return 'A'
+    else:
+        return trace.split()[1]
+
+
+
+
+def add_routers(topo, host1, host2, x, alias, traces, max_iter, blocking_case):
+    with open("traceroute/"+host1+host2) as trace:
+        lines = trace.readlines()        
+        src = None
+        dst = None
+        if max_iter == 100:
+            num_lines = len(lines)
+            max_iter = num_lines -2 #skip first and last line (don't consider hosts)
+        if max_iter == 1: # Only add the router to the virtual topo and return it
+            dst = find_router(lines[1].split(), alias)
+            if dst not in topo:
+                topo[dst] = ('R', set())
+                if not blocking_case:
+                    traces[host1+host2].append(dst)
+        for i in range(1, max_iter):
+            src = find_router(lines[i].split(), alias)
+            dst = find_router(lines[i+1].split(), alias)
+            (src,dst) = add_link(topo,(src,dst) ,x ,i)
+            if not blocking_case:
+                if i==1:
+                    traces[host1+host2].append(src)
+                traces[host1+host2].append(dst)
+    return dst   
+
+
 
 
 
@@ -213,7 +304,17 @@ async def code(message):
     private_ip = response_callback.response.ip.split("/")[1]
 
     if "traceroute" in message.response:
-        
+
+        file_name = "topology/hosts/" + public_ip
+        try:
+            os.makedirs(os.path.dirname(file_name), exist_ok=True)            
+        except Exception as e:
+            print(e)
+        f = open(file_name, "a+")
+        f.write(private_ip + " ")
+        f.flush()
+        f.close()
+       
         file_name = "topology/distances/" + public_ip + "/" + private_ip
         try:
             os.makedirs(os.path.dirname(file_name), exist_ok=True)            
@@ -256,10 +357,14 @@ async def code(message):
         
     else:
         file_name = "parallel_" + message.task.original_params.split(";;;")[2]
-        f = open(file_name, "a+")
-        f.write("Callback: {}, IP: {} \n{}\n".format(message.task.callback.id, response_callback.response.ip, message.response))
-        f.flush()
-        f.close()
+        try:
+            f = open(file_name, "a+")
+            f.write("Callback: {}, IP: {} \n{}\n".format(message.task.callback.id, response_callback.response.ip, message.response))
+            f.flush()
+            f.close()
+        except:
+            print(colored("Unable to write on {}".format(file_name), "red"))
+
 
     for c in running_callbacks:
         if c.ip == response_callback.response.ip:
@@ -272,90 +377,83 @@ async def code(message):
 
 
 
-async def handle_task(mythic, message):
-    #print(message)
-    # await mythic_rest.json_print(message)
 
+async def parallel(message):
 
-    if message.command.cmd == "parallel" and message.status == "processed":
+    global workers
+    global distributed_parameters
+    distributed_parameters = []        
 
-        global workers
-        global distributed_parameters
-        distributed_parameters = []        
+    parameters = message.original_params.split()
+    print(colored("\nNew task: {}".format(parameters), "blue"))
 
-        parameters = message.original_params.split()
-        print(colored("\nNew task: {}".format(parameters), "blue"))
+    additional=""
 
-        additional=""
+    if len(parameters) > 2:
+        try:
+            additional = ast.literal_eval(parameters[2])
+        except:
+            additional = parameters[2]
+    
+    resp = await mythic_instance.get_all_callbacks()
 
-        if len(parameters) > 2:
-            try:
-                additional = ast.literal_eval(parameters[2])
-            except:
-                additional = parameters[2]
+    total_code = ""
+    code_path = "../Payload_Types/kayn/shared/" + parameters[0]
+
+    try:
+        workers = int(parameters[1])
+    except Exception as e:
+        print(colored("\t Failed to get workers number - {}".format(e), "red"))
+        raise Exception("\t - Failed to get workers number - {}".format(e))
+        return
+
+    if workers == 0:
+        for c in resp.response:
+            if c.active:
+                workers += 1
+        print(colored("\t - Workers automatically set to {}".format(workers), "green"))
+
+    try:
+        total_code += open(code_path, "r").read() + "\n"
         
-        resp = await mythic_instance.get_all_callbacks()
+    except Exception as e:
+        print(colored("\t - Failed to open {}".format(parameters[0]), "red"))
+        return
 
-        total_code = ""
-        code_path = "./Payload_Types/kayn/shared/" + parameters[0]
+    index = total_code.index("def worker(")
+    worker_code = total_code[index:]
+    preliminary_code = total_code[:index]
 
-        try:
-            workers = int(parameters[1])
-        except Exception as e:
-            print(colored("\t Failed to get workers number - {}".format(e), "red"))
-            raise Exception("\t - Failed to get workers number - {}".format(e))
-            return
 
-        if workers == 0:
-            for c in resp.response:
-                if c.active:
-                    workers += 1
+    exec(str(preliminary_code))
 
-            print(colored("\t - Workers automatically set to {}".format(workers), "green"))
-
-        try:
-            total_code += open(code_path, "r").read() + "\n"
-            
-        except Exception as e:
-            print(colored("\t - Failed to open {}".format(parameters[0]), "red"))
-            return
-
-        index = total_code.index("def worker(")
-        worker_code = total_code[index:]
-        preliminary_code = total_code[:index]
-   
-
-        exec(str(preliminary_code))
-
-        try:
-            if "async def initialize" in preliminary_code:
-                if additional != "":
-                    await eval("initialize(additional)")
-                else:
-                    await eval("initialize()")
-            elif additional != "":
-                eval("initialize(additional)")
+    try:
+        if "async def initialize" in preliminary_code:
+            if additional != "":
+                await eval("initialize(additional)")
             else:
-                eval("initialize()")
-        except Exception as e:
-            print(e)
+                await eval("initialize()")
+        elif additional != "":
+            eval("initialize(additional)")
+        else:
+            eval("initialize()")
+    except Exception as e:
+        print(e)
 
 
-        now = datetime.now()
-        i=0
-        global running_callbacks
-        while i < workers:
-            for c in resp.response:
-                if c.active:
-                    task = mythic_rest.Task(callback=c, command="code", params="{};;;{};;;{}".format(worker_code, distributed_parameters[i], now))
-                    submit = await mythic_instance.create_task(task, return_on="submitted")
-                    if c not in running_callbacks:
-                        running_callbacks.append(c)
-                    i += 1
-                if i == workers:
-                    break
-
-
+    now = datetime.now()
+    i=0
+    global running_callbacks
+    while i < workers:
+        for c in resp.response:
+            if c.active:
+                task = mythic_rest.Task(callback=c, command="code", params="{};;;{};;;{}".format(worker_code, distributed_parameters[i], now))
+                submit = await mythic_instance.create_task(task, return_on="submitted")
+                if c not in running_callbacks:
+                    running_callbacks.append(c)
+                i += 1
+            if i == workers:
+                break
 
 async def main():
     global local_psw
