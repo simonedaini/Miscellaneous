@@ -2,19 +2,17 @@
 
 
 # importing the module
-from os import link, path, read, remove
+from hashlib import new
+from os import path
 import re
 import networkx as nx
 import matplotlib.pyplot as plt
-from networkx.classes.function import non_edges
-from networkx.generators import line
 from numpy import e
 from pandas_ods_reader import read_ods
 from termcolor import colored
-import json
-import time
 import ast
 import sys
+import random
 
 hid_counter = 1
 b_counter = 1
@@ -196,25 +194,6 @@ paths.append(create_path("E", "F", 3))
 paths.append(create_path("E", "G", 4))
 paths.append(create_path("G", "I", 2))
 
-
-
-# Trace Preservation: 2 links cannot appear in the same path
-# Distance Preservation: Distance between 2 monitors is consistent after the merge
-# Link Endpoint Compatibility: Check the table to see if two links have compatible type (care reversed and type R)
-
-# 1) Identify all the valid merge options for each link, according to the 3 rules above
-# 2) Select Ei with the fewest merging options and then Ej which has the fewest merging options out of the links with witch Ei can be merged
-# 3) Check compatibility again because it might be changed by previous merges
-# 4) Check each path containing one of the two links to make sure it will be coherent after the merge.
-# 5) Merging Ej into Ei:
-#       - All paths containing Ej are modified to contain Ei
-#       - The set of link merging options for Ei are changed as the intersection between the ones of Ei and the ones of Ej
-#       - Any link that could have been merged with both Ei and Ej retain their merge option with Ei and the merge option with Ej is removed
-#       - Any link which had a merge option with either Ei or Ej but not both have that option removed
-#       - Change the endpoint classes of Ei according to the table. The link with the most specialized endpoint determines the class of the resulting endpoint
-
-
-
 def trace_preservation(paths, link1, link2):
     found1 = False
     found2 = False
@@ -239,7 +218,7 @@ def distance_preservation(paths: list, monitors, link1, link2):
     for path in paths:
         new_paths.append(path.copy())
     
-    merge_links(new_paths, link1, link2)
+    merge_links(new_paths, link1, link2, True)
     new_graph = create_graph(new_paths)
 
     old_distances = dict(nx.all_pairs_shortest_path_length(old_graph))
@@ -253,18 +232,12 @@ def distance_preservation(paths: list, monitors, link1, link2):
     return True
 
 
-def merge_link(link1, link2):
+def merge_link(link1, link2, debug=False):
     global M
     if isinstance(link1, str):
         link1 = ast.literal_eval(link1)
     if isinstance(link2, str):
         link2 = ast.literal_eval(link2) 
-
-    HID = 0
-    NC = 1
-    R = 1
-    A = 2
-    B = 2
 
     t = get_compatibility(M, link1, link2)
     type1 = get_edge_type(link1)
@@ -278,24 +251,30 @@ def merge_link(link1, link2):
     elif type1.split("-")[0] in t:
         selected = link1
     elif type2.split("-")[0] in t:
-        selected = link1
+        selected = link2
     elif type1.split("-")[1] in t:
         selected = link1
     elif type2.split("-")[1] in t:
-        selected = link1
+        selected = link2
 
     while True:
         if selected[0]["type"] == t.split("-")[0] and selected[1]["type"] == t.split("-")[1]:
+            if not debug:
+                print("\tUpdated edge = {}".format(selected))
             return selected
         elif selected[0]["type"] == t.split("-")[0] and selected[1]["type"] != t.split("-")[1]:
             selected[1]["type"] = t.split("-")[1]
             selected[1]["ip"] = eval("{}_counter".format(t.split("-")[1].lower()))
             eval("{}_counter += 1".format(t.split("-")[1].lower()))
+            if not debug:
+                print("\tUpdated edge = {}".format(selected))
             return selected
         elif selected[0]["type"] != t.split("-")[0] and selected[1]["type"] == t.split("-")[1]:
             selected[0]["type"] = t.split("-")[0]
             selected[0]["ip"] = eval("{}_counter".format(t.split("-")[1].lower()))
             eval("{}_counter += 1".format(t.split("-")[1].lower()))
+            if not debug:
+                print("\tUpdated edge = {}".format(selected))
             return selected
         else:
             t = t[::-1]
@@ -303,7 +282,7 @@ def merge_link(link1, link2):
         
 
 
-def merge_links(paths, link1, link2):
+def merge_links(paths, link1, link2, debug=False):
     global M
 
     if isinstance(link1, str):
@@ -316,8 +295,7 @@ def merge_links(paths, link1, link2):
     if t == "-":
         print("Cannot merge {} and {}, incompatible types".format(link1, link2))
 
-    new_link = merge_link(link1, link2)
-    print("\tMerged link = {}".format(new_link))
+    new_link = merge_link(link1, link2, debug)
     for path in paths:
         for i in range(len(path) - 1):
             if path[i] == link2[0] and path[i+1] == link2[1] or path[i] == link1[0] and path[i+1] == link1[1]:
@@ -344,21 +322,24 @@ def get_edge_type(link):
     return t
 
     
-def reverse_type(type):
-    split = type.split("-")
-    new_type = split[1] + "-" + split[0]
-    return new_type
+def reverse_type(t):
+    s = t.split("-")
+    n = s[1] + "-" + s[0]
+    return n
 
 
 def get_compatibility(M, link1, link2):
+    if isinstance(link1, str):
+        link1 = ast.literal_eval(link1)
+    if isinstance(link2, str):
+        link2 = ast.literal_eval(link2)
+
     row = []
     for i in range(1, len(M.columns)):
         row.append(M.axes[1][i])
     
     type1 = get_edge_type(link1)
     type2 = get_edge_type(link2)
-
-    tries = 0
 
     if "R" in type1 and "R" in type2:
         ip1 = None
@@ -376,21 +357,29 @@ def get_compatibility(M, link1, link2):
         if ip1 == None or ip2 == None or ip1 != ip2:
             return "-"
 
-    while True:
+
+    t = ""
+    for i in range(8):
         try:
             t = M[type1][row.index(type2)]
-            break
         except:
-            if tries == 0:
-                type1 = reverse_type(type1)
-            if tries == 1:
-                type2 = reverse_type(type2)
-            if tries == 2:
-                type1 = reverse_type(type1)
-            if tries == 3:
-                return "-"
-            tries += 1
-    return t
+            if i % 4 == 0:
+                type1 = type1.split("-")[1] + "-" + type1.split("-")[0]
+            if i % 4 == 1:
+                type2 = type2.split("-")[1] + "-" + type2.split("-")[0]
+            if i % 4 == 2:
+                type1 = type1.split("-")[1] + "-" + type1.split("-")[0]
+                type2 = type2.split("-")[1] + "-" + type2.split("-")[0]
+            if i % 4 == 3:
+                aux = type1
+                type1 = type2
+                type2 = aux
+        
+        if t != None and t != "" and t != "-":
+            return t
+
+    return "-"
+
 
 
 
@@ -444,21 +433,14 @@ def create_merge_options(paths):
 
                 if compatibility != "-" and trace and distance:
                     if str(link1) not in merge_options:
-                        print("Creating new list for {}".format(link1))
                         merge_options[str(link1)] = []
                     if str(link2) not in merge_options:
-                        print("Creating new list for {}".format(link2))
                         merge_options[str(link2)] = []
 
                     if link2 not in merge_options[str(link1)]:
-                        print("Adding {} -> {} - {}, {}".format(link1, link2, type(link1), type(link2)))
                         merge_options[str(link1)].append(link2)
                     if link1 not in merge_options[str(link2)]:
                         merge_options[str(link2)].append(link1)
-                        print("Reverse {} -> {} - {}, {}".format(link2, link1, type(link1), type(link2)))
-
-                    print_merge_options(merge_options)
-                    print("\n\n")
 
     return merge_options
 
@@ -524,28 +506,50 @@ def update_merge_options(merge_options, link1, link2):
         sys.exit()
 
     new_options = {}
-    new_link = merge_link(link1, link2)
+    new_link = merge_link(link1, link2, True)
 
     for key in merge_options:
         if str(key) != str(link1) and key != str(link2):
             if link1 in merge_options[key] and link2 in merge_options[key]:
+                print("\tKey {} has both {} and {}".format(key, link1, link2))
                 options = merge_options[key].copy()
                 options.remove(link2)
                 options.remove(link1)
                 options.append(new_link)
                 if options != []:
+                    print("\t\tRemoving {}".format(link2))
+                    print("\t\tSobstituting {} -> {}".format(link1, new_link))
                     new_options[key] = options
+                    print("\t\tFinal Options = {}\n".format(new_options[key]))
+                else:
+                    print("\t\tPOP key {}, empty options\n".format(key))
             else:
+                print("\tKey {} does NOT have both {} and {}".format(key, link1, link2))
                 if link1 in merge_options[key]:
                     options = merge_options[key].copy()
                     options.remove(link1)
                     if options != []:
+                        print("\t\tRemoving {}".format(link1))
                         new_options[key] = options
+                        print("\t\tFinal Options = {}\n".format(new_options[key]))
+                    else:
+                        print("\t\tPOP key {}, empty options\n".format(key))
                 if link2 in merge_options[key]:
                     options = merge_options[key].copy()
                     options.remove(link2)
                     if options != []:
                         new_options[key] = options
+                        print("\t\tRemoving {} -> {}".format(key, link2))
+                        print("\t\tFinal Options = {}\n".format(new_options[key]))
+                    else:
+                        print("\t\tPOP key {}, empty options\n".format(key))
+                else:
+                    print("\tKey {} has NOT either {} or {}".format(key, link1, link2))
+                    options = merge_options[key].copy()
+                    if options != []:
+                        new_options[key] = options
+
+
 
     intersection = option_intersection(merge_options, link1, link2)
     if intersection != []:
@@ -569,40 +573,59 @@ def print_merge_options(merge_options):
 
 
 
+def check_consistency(paths):
+    global nc_counter
+
+    update = []
+
+    for path in paths:
+        for i in range(len(path) - 1):
+            if path[i]["type"] == "B" and path[i+1]["type"] == "HID":
+                print("Found inconsistency between {} and {}".format(path[i], path[i+1]))
+                update = path[i]["ip"]
+
+    new_paths = []
+    for path in paths:
+        p = []
+        for i in range(len(path)):
+            if path[i]["ip"] in update:
+                r = {
+                    "type": "NC",
+                    "ip": "NC{}".format(nc_counter)
+                }
+                nc_counter += 1
+                p.append(r)
+            else:
+                p.append(path[i])
+        new_paths.append(p)
+    return new_paths
+
 M = get_matrix("/home/simone/Scrivania/Matrice.ods")
 merge_options = create_merge_options(paths)
-
-print("INITIAL MERGE OPTIONS")
 print_merge_options(merge_options)
-print("\n\n")
 
-
-# G = create_graph(paths)
-# draw_graph(G)
-# save_graph(G, "VT")
+G = create_graph(paths)
+draw_graph(G)
+save_graph(G, "VT")
 
 i = 1
-while merge_options:
-    print("Iteration {}".format(i))
-    i += 1
+sync = i
+while True and sync == i:
+    merge_options = create_merge_options(paths)
+    sync += 1
+    while merge_options:
+        print("Iteration {}".format(i))
+        i += 1
 
-    min_key = get_min_key(merge_options)
-    print("\tMerging {} with {}".format(min_key, merge_options[min_key][0]))
-    link1 = min_key
-    link2 = merge_options[min_key][0]    
-    paths = merge_links(paths, link1, link2)
-    merge_options = update_merge_options(merge_options, link1, link2)
+        link1 = get_min_key(merge_options)
+        link2 = merge_options[link1][0]
+        print("\tMerging {} with {}".format(link1, link2))
+        print("\tCompatibility = {}".format(get_compatibility(M, link1,  link2)))    
+        paths = merge_links(paths, link1, link2)
+        merge_options = update_merge_options(merge_options, link1, link2)
+        print_merge_options(merge_options)
+    paths = check_consistency(paths)
 
-    print_merge_options(merge_options)
-    print("\n")
-
-    # print_merge_options(merge_options)
-    # print_paths(paths)
-    # G = create_graph(paths)
-    # save_graph(G, "MT{}".format(i))
-    # draw_graph(G)
-
-
-# G = create_graph(paths)
-# draw_graph(G)
-# save_graph(G, "MT")
+G = create_graph(paths)
+draw_graph(G)
+save_graph(G, "MT")
