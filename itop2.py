@@ -290,87 +290,6 @@ def merge_link(link1, link2, reverse=False, debug=False):
         else:
             t = "{}-{}".format(t.split("-")[1], t.split("-")[0])
 
-    # router = None
-    # if link1[0]["type"] == "R":
-    #     router = link1[0]["ip"]
-    # if link1[1]["type"] == "R":
-    #     router = link1[1]["ip"]
-    # if link2[0]["type"] == "R":
-    #     router = link2[0]["ip"]
-    # if link2[1]["type"] == "R":
-    #     router = link2[1]["ip"]
-
-    # r1 = {
-    #     "type": link1[0]["type"],
-    #     "ip": link1[0]["ip"]
-    # }
-    # r2 = {
-    #     "type": link2[0]["type"],
-    #     "ip": link2[0]["ip"]
-    # }
-    # new_link = (r1, r2)
-
-    # if link1[0]["type"] == t.split("-")[0] and link1[1]["type"] == t.split("-")[1]:
-    #     new_link = link1
-    # elif link2[0]["type"] == t.split("-")[0] and link2[1]["type"] == t.split("-")[1]:
-    #     new_link = link2
-
-    # elif link1[0]["type"] == t.split("-")[0] and link1[1]["type"] != t.split("-")[1]:
-    #     if t.split("-")[1] == "R":
-    #         r = {
-    #             "type": "R",
-    #             "ip": router
-    #         }
-    #         new_link = (link1[1], r)
-    #     else:
-    #         new_link[1]["type"] = t.split("-")[1]
-    #         new_link[1]["ip"] = str(t.split("-")[1]) + str(eval("{}_counter".format(t.split("-")[1].lower())))
-    #         exec("{}_counter += 1".format(t.split("-")[1].lower()))
-
-    # elif link1[0]["type"] != t.split("-")[0] and link1[1]["type"] == t.split("-")[1]:
-    #     if t.split("-")[0] == "R":
-    #         r = {
-    #             "type": "R",
-    #             "ip": router
-    #         }
-    #         new_link = (r, link1[1])
-    #     else:
-    #         new_link[0]["type"] = t.split("-")[0]
-    #         new_link[0]["ip"] = str(t.split("-")[0]) + str(eval("{}_counter".format(t.split("-")[0].lower())))
-    #         exec("{}_counter += 1".format(t.split("-")[0].lower()))
-
-    # else:
-    #     if t.split("-")[0] == "R":
-    #         r = {
-    #             "type": "R",
-    #             "ip": router
-    #         }
-    #         new_link[1]["type"] = t.split("-")[1]
-    #         new_link[1]["ip"] = str(t.split("-")[1]) + str(eval("{}_counter".format(t.split("-")[1].lower())))
-    #         exec("{}_counter += 1".format(t.split("-")[1].lower()))
-    #         new_link = (r, new_link[1])
-    #     elif t.split("-")[1] == "R":
-    #         r = {
-    #             "type": "R",
-    #             "ip": router
-    #         }
-    #         new_link[0]["type"] = t.split("-")[0]
-    #         new_link[0]["ip"] = str(t.split("-")[0]) + str(eval("{}_counter".format(t.split("-")[0].lower())))
-    #         exec("{}_counter += 1".format(t.split("-")[0].lower()))
-    #         new_link = (new_link[1], r)
-    #     else:
-    #         new_link[0]["type"] = t.split("-")[0]
-    #         new_link[0]["ip"] = str(t.split("-")[0]) + str(eval("{}_counter".format(t.split("-")[0].lower())))
-    #         exec("{}_counter += 1".format(t.split("-")[0].lower()))
-    #         new_link[1]["type"] = t.split("-")[1]
-    #         new_link[1]["ip"] = str(t.split("-")[1]) + str(eval("{}_counter".format(t.split("-")[1].lower())))
-    #         exec("{}_counter += 1".format(t.split("-")[1].lower()))
-
-    # if reverse:
-    #     n = (new_link[1], new_link[0])
-    #     return n
-    # else:
-    #     return new_link
 
 
 def merge_links(paths, link1, link2):
@@ -392,11 +311,53 @@ def merge_links(paths, link1, link2):
 
     new_link = merge_link(link1, link2)
     for path in paths:
+        copy = path.copy()
         for i in range(len(path) - 1):
             if path[i] == link2[0] and path[i+1] == link2[1] or path[i] == link1[0] and path[i+1] == link1[1]:
-                path[i] = new_link[0]
-                path[i+1] = new_link[1]
+                copy[i] = new_link[0]
+                copy[i+1] = new_link[1]
+                coherence = path_coherence(path, copy)
+                if coherence:
+                    path[i] = new_link[0]
+                    path[i+1] = new_link[1]
+                else:
+                    copy[i] = new_link[1]
+                    copy[i+1] = new_link[0]
+                    coherence = path_coherence(path, copy)
+                    if coherence:
+                        path[i] = new_link[1]
+                        path[i+1] = new_link[0]
+                    else:
+                        merge_options = remove_merge_option(merge_options, link1, link2)
     return paths
+
+
+def remove_merge_option(merge_options, link1, link2):
+    merge_options[str(link1)].remove(link2)
+    merge_options[str(link2)].remove(link1)
+    return merge_options
+
+def path_coherence(old_path, new_path):
+    HID = 0
+    NC = 1
+    R = 1
+    A = 2
+    B = 2
+
+    if len(old_path) != len(new_path):
+        return False
+
+    for i in range(len(old_path)):
+        if old_path[i]["type"] == "R" and new_path[i]["type"] == "R" and old_path[i]["ip"] != new_path[i]["ip"]:
+            return False
+        if old_path[i]["type"] == "R" and new_path[i]["type"] != "R":
+            return False
+        if eval(old_path[i]["type"]) > eval(new_path[i]["type"]):
+            return False
+        if eval(old_path[i]["type"]) == eval(new_path[i]["type"]) and old_path[i]["type"] != new_path[i]["type"]:
+            return False
+
+    return True
 
 
 def get_matrix(file_name):
@@ -622,6 +583,16 @@ def get_min_options(merge_options: dict):
             min = len(merge_options[options])
     return min
 
+def get_edge_with_fewest_options(merge_options, key):
+    min = 1000
+    last = None
+    for edge in merge_options[key]:
+        if len(merge_options[str(edge)]) < min:
+            min = len(merge_options[str(edge)])
+            last = edge
+
+    return last
+
 def option_intersection(merge_options, link1, link2):
 
     if isinstance(link1, str):
@@ -717,70 +688,6 @@ def print_merge_options(merge_options):
 
 
 
-def check_consistency(paths):
-    global nc_counter, b_counter
-
-    update = {}
-
-    for path in paths:
-        for i in range(len(path) - 1):
-            if path[i]["type"] == "B" and path[i+1]["type"] == "HID":
-                update[path[i]["ip"]] = "NC{}".format(nc_counter)
-                nc_counter += 1
-            # if path[i]["type"] == "NC" and path[i+1]["type"] != "HID":
-            #     update[path[i]["ip"]] = "B{}".format(b_counter)
-            #     b_counter += 1
-
-
-    new_paths = []
-    for path in paths:
-        p = []
-        for i in range(len(path)):
-            if path[i]["ip"] in update:
-                if "B" in path[i]["ip"]:
-                    r = {
-                        "type": "NC",
-                        "ip": update[path[i]["ip"]]
-                    }
-                    p.append(r)
-                # elif "NC" in path[i]["ip"]:
-                #     r = {
-                #         "type": "B",
-                #         "ip": update[path[i]["ip"]]
-                #     }
-                #     p.append(r)
-            else:
-                p.append(path[i])
-        new_paths.append(p)
-    return new_paths
-
-
-def check_NC_consistency(paths):
-    global nc_counter, b_counter
-
-    update = {}
-
-    for path in paths:
-        for i in range(len(path) - 1):
-            if path[i]["type"] == "NC" and path[i+1]["type"] != "HID":
-                update[path[i]["ip"]] = "B{}".format(b_counter)
-                b_counter += 1
-
-    new_paths = []
-    for path in paths:
-        p = []
-        for i in range(len(path)):
-            if path[i]["ip"] in update:
-                r = {
-                    "type": "B",
-                    "ip": update[path[i]["ip"]]
-                }
-                p.append(r)
-            else:
-                p.append(path[i])
-        new_paths.append(p)
-    return new_paths
-
 M = get_matrix("/home/simone/Scrivania/Matrice.ods")
 merge_options = create_merge_options(paths)
 print("Start")
@@ -788,12 +695,11 @@ print_merge_options(merge_options)
 
 G = create_graph(paths)
 draw_graph(G)
-save_graph(G, "VT2")
+save_graph(G, "VT")
 
 i = 1
 sync = i
-for i in range(10):
-    paths = check_consistency(paths)
+for i in range(25):
     merge_options = create_merge_options(paths)
     sync += 1
     while merge_options != {}:
@@ -803,13 +709,25 @@ for i in range(10):
         i += 1
 
         link1 = get_min_key(merge_options)
-        link2 = merge_options[link1][0]
+        link2 = get_edge_with_fewest_options(merge_options, link1)
         print("\tMerging {} with {}".format(link1, link2))
         print("\tCompatibility = {}".format(get_compatibility(M, link1,  link2)))
         paths = merge_links(paths, link1, link2)
         merge_options = update_merge_options(merge_options, link1, link2)
         print_merge_options(merge_options)
-    paths = check_consistency(paths)
+
+
+print_paths(paths)
+print_merge_options(merge_options)
+G = create_graph(paths)
+draw_graph(G)
+save_graph(G, "MT")
+
+{'type': 'B', 'ip': 'B2'}, {'type': 'R', 'ip': '2.2.2.2'}
+{'type': 'R', 'ip': '2.2.2.2'}, {'type': 'B', 'ip': 'B3'}
+link1 = ({'type': 'B', 'ip': 'B2'}, {'type': 'R', 'ip': '2.2.2.2'})
+link2 = ({'type': 'R', 'ip': '2.2.2.2'}, {'type': 'B', 'ip': 'B3'})
+paths = merge_links(paths, link1, link2)
 
 print_paths(paths)
 print_merge_options(merge_options)
