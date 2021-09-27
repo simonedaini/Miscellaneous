@@ -186,6 +186,16 @@ def save_graph(G, name):
 # C = 6.6.6.6
 
 paths = []
+distances = {}
+distances["1.1.1.1-2.2.2.2"] = 4
+distances["1.1.1.1-3.3.3.3"] = 3
+distances["1.1.1.1-4.4.4.4"] = 2
+distances["1.1.1.1-5.5.5.5"] = 2
+distances["2.2.2.2-3.3.3.3"] = 3
+distances["2.2.2.2-4.4.4.4"] = 4
+distances["4.4.4.4-5.5.5.5"] = 2
+
+
 paths.append(create_path("A", "E", 4))
 paths.append(create_path("A", "F", 3))
 paths.append(create_path("A", "G", 2))
@@ -193,6 +203,8 @@ paths.append(create_path("A", "I", 2))
 paths.append(create_path("E", "F", 3))
 paths.append(create_path("E", "G", 4))
 paths.append(create_path("G", "I", 2))
+
+
 
 def trace_preservation(paths, link1, link2):
     found1 = False
@@ -214,25 +226,47 @@ def trace_preservation(paths, link1, link2):
 
 
 
-def distance_preservation(paths: list, monitors, link1, link2):
-    old_graph = create_graph(paths)
+# def distance_preservation(paths: list, monitors, link1, link2, debug=False):
+#     old_graph = create_graph(paths)
+#     new_paths = []
+#     for path in paths:
+#         new_paths.append(path.copy())
+
+#     merge_links(new_paths, link1, link2)
+#     new_graph = create_graph(new_paths)
+
+#     old_distances = dict(nx.all_pairs_shortest_path_length(old_graph))
+#     new_distances = dict(nx.all_pairs_shortest_path_length(new_graph))
+#     for node in monitors:
+#         for node2 in monitors:
+#             if node != node2:
+#                 if node2 in new_distances:
+#                     if old_distances[node][node2] != new_distances[node][node2]:
+#                         if debug:
+#                             print("Changed distance {} {} -> {} {}".format(node, node2, old_distances[node][node2] != new_distances[node][node2]))
+#                         return False
+
+#     return True
+
+def distance_preservation(paths: list, monitors, link1, link2, debug=False):
+            
     new_paths = []
     for path in paths:
         new_paths.append(path.copy())
-
-    merge_links(new_paths, link1, link2)
     new_graph = create_graph(new_paths)
 
-    old_distances = dict(nx.all_pairs_shortest_path_length(old_graph))
     new_distances = dict(nx.all_pairs_shortest_path_length(new_graph))
-    for node in monitors:
-        for node2 in monitors:
-            if node != node2:
-                if node2 in new_distances:
-                    if old_distances[node][node2] != new_distances[node][node2]:
-                        return False
 
+    for key in distances:
+        n1 = key.split("-")[0]
+        n2 = key.split("-")[1]
+
+        if new_distances[n1][n2] != distances[key]:
+            return False
+    
     return True
+
+
 
 
 def merge_link(link1, link2, reverse=False, debug=False):
@@ -533,6 +567,8 @@ def get_nodes(paths):
                 nodes.append(path[i])
     return nodes
 
+def reverse(l):
+    return (l[1], l[0])
 
 def create_merge_options(paths):
     global monitors, M
@@ -543,10 +579,7 @@ def create_merge_options(paths):
             edges.append((path[i], path[i+1]))
     for link1 in edges:
         for link2 in edges:
-            if link1 != link2:
-                t1 = get_edge_type(link1)
-                t2 = get_edge_type(link2)
-                
+            if link1 != link2 and reverse(link1) != link2:
                 compatibility = get_compatibility(M, link1, link2)
                 trace = trace_preservation(paths, link1, link2)
                 distance = False
@@ -699,7 +732,7 @@ save_graph(G, "VT")
 
 i = 1
 sync = i
-for i in range(25):
+for i in range(100):
     merge_options = create_merge_options(paths)
     sync += 1
     while merge_options != {}:
@@ -717,20 +750,24 @@ for i in range(25):
         print_merge_options(merge_options)
 
 
-print_paths(paths)
-print_merge_options(merge_options)
 G = create_graph(paths)
 draw_graph(G)
 save_graph(G, "MT")
 
-{'type': 'B', 'ip': 'B2'}, {'type': 'R', 'ip': '2.2.2.2'}
-{'type': 'R', 'ip': '2.2.2.2'}, {'type': 'B', 'ip': 'B3'}
-link1 = ({'type': 'B', 'ip': 'B2'}, {'type': 'R', 'ip': '2.2.2.2'})
-link2 = ({'type': 'R', 'ip': '2.2.2.2'}, {'type': 'B', 'ip': 'B3'})
-paths = merge_links(paths, link1, link2)
 
-print_paths(paths)
-print_merge_options(merge_options)
-G = create_graph(paths)
-draw_graph(G)
-save_graph(G, "MT2")
+
+print("Final Iteration")
+
+link1 = ({'type': 'R', 'ip': '2.2.2.2'}, {'type': 'B', 'ip': 'B2'})
+link2 = ({'type': 'R', 'ip': '2.2.2.2'}, {'type': 'B', 'ip': 'B3'})
+
+
+compatibility = get_compatibility(M, link1, link2)
+trace = trace_preservation(paths, link1, link2)
+distance = False
+if compatibility != "-" and trace:
+    distance = distance_preservation(paths, monitors, link1, link2, True)
+
+print("Compatibility = {}".format(compatibility))
+print("Trace = {}".format(trace))
+print("Distance = {}".format(distance))
