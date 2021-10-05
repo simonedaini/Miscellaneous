@@ -699,3 +699,6 @@ while True and sync == i:
 
 draw_graph(G)
 save_graph(G, "MT")
+
+# Vedere solo IP
+# sudo tcpdump  -n -c 5 ip | awk '{ print gensub(/(.*)\..*/,"\\1","g",$3), $4, gensub(/(.*)\..*/,"\\1","g",$5) }'
