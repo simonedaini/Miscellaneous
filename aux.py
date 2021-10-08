@@ -1,14 +1,7 @@
 import asyncio
-import mythic
 import pexpect
-import time
-import re
 import os
-import threading
-import json
 import ast
-import math
-import hashlib
 from datetime import date, datetime
 from mythic import mythic_rest
 from termcolor import colored
@@ -16,6 +9,8 @@ import socket
 import subprocess
 from multiprocessing import Process
 import shutil
+from itop3 import iTop
+
 
 
 
@@ -89,88 +84,6 @@ async def handle_task(mythic, message):
 
     if message.command.cmd == "parallel" and message.status == "completed":
         await parallel(message)
-
-
-def virtual_topology(public_ip):
-    print("[+] Creating virtual topology of {}".format(public_ip))
-
-    try:
-        file_name = "topology/hosts/" + public_ip
-        hosts_file = open(file_name)
-    except:
-        print(colored("Unable to open " + file_name, "red"))
-    hosts = hosts_file.read().split()
-    topo = {}
-    x = [0]
-    done = set()
-    traces = {}
-
-    for h1 in hosts:
-        for h2 in hosts:
-            if h1 != h2:
-                traces[h1+h2] = []
-                if get_answer_from_dest(public_ip, h1, h2):
-                    add_routers(topo, h1, h2, x, alias, traces, 100, False)
-                
-
-
-
-
-def get_answer_from_dest(public_ip, host1, host2):
-    count = len(open("traceroutes/" + public_ip + "/" + host1 + "-" + host2).readlines())
-    if count <= 30:
-        return True
-    else:
-        return False
-
-def add_all_routers(topo, public_ip, host1, host2, blocking_case):
-    f = open("topology/traceroutes/{}/{}-{}".format(public_ip, host1, host2, "r"))
-    lines = f.readlines()
-    scr = None
-    dst = None
-    for i in range(1, len(lines)-1):
-        src = get_router(lines[i])
-        dst = get_router(lines[i+1])
-    
-
-    
-
-
-def get_router(trace):
-    i = 1
-    while  i <= 3 and trace[i]=='*':
-        i=i+1
-    if i > 3:
-        return 'A'
-    else:
-        return trace.split()[1]
-
-
-
-
-def add_routers(topo, host1, host2, x, alias, traces, max_iter, blocking_case):
-    with open("traceroute/"+host1+host2) as trace:
-        lines = trace.readlines()        
-        src = None
-        dst = None
-        if max_iter == 100:
-            num_lines = len(lines)
-            max_iter = num_lines -2 #skip first and last line (don't consider hosts)
-        if max_iter == 1: # Only add the router to the virtual topo and return it
-            dst = find_router(lines[1].split(), alias)
-            if dst not in topo:
-                topo[dst] = ('R', set())
-                if not blocking_case:
-                    traces[host1+host2].append(dst)
-        for i in range(1, max_iter):
-            src = find_router(lines[i].split(), alias)
-            dst = find_router(lines[i+1].split(), alias)
-            (src,dst) = add_link(topo,(src,dst) ,x ,i)
-            if not blocking_case:
-                if i==1:
-                    traces[host1+host2].append(src)
-                traces[host1+host2].append(dst)
-    return dst   
 
 
 
@@ -340,7 +253,7 @@ async def code(message):
             dest_ip_start = sub.find("traceroute to ") + 14
             dest_ip_end = sub.find("hops")
             dest_ip = sub[dest_ip_start : dest_ip_end].strip().split(" ")[0]
-            file_name = "topology/traceroutes/" + response_callback.response.ip.split("/")[0] + "/" + response_callback.response.ip.split("/")[1] + "-" + dest_ip
+            file_name = "topology/traceroutes/" + public_ip + "/" + private_ip + "-" + dest_ip
             try:
                 os.makedirs(os.path.dirname(file_name), exist_ok=True)            
             except Exception as e:
@@ -348,12 +261,15 @@ async def code(message):
 
             f = open(file_name, "w+")
             next_trace = sub[dest_ip_start:].find("traceroute to ")
+            # TODO: check if it works with multiple traceroutes in the same response
             if next_trace != -1:
                 f.write(sub[dest_ip_start - 14 : next_trace])
             else:
                 f.write(sub[dest_ip_start - 14:])
-        
+                
             sub = sub[dest_ip_start:]
+        f.flush()
+        f.close()
         
     else:
         file_name = "parallel_" + message.task.original_params.split(";;;")[2]
@@ -371,9 +287,15 @@ async def code(message):
             running_callbacks.remove(c)
 
     if running_callbacks == []:
-        print("[+] Gathering phase finished, creating virtual topology...")
-        virtual_topology(public_ip)
+        
+        print("[+] Gathering phase finished, creating merged topology...")
 
+        compatibility_matrix_path = "/home/simone/Scrivania/Matrice.ods"
+        # network_public_ip = "79.41.25.238"
+        # folder_path = "/home/simone/Scrivania/monitors/"
+        folder_path = "./topology/"
+        # iTop(compatibility_matrix_path, folder_path, network_public_ip)
+        iTop(compatibility_matrix_path, folder_path, public_ip)
 
 
 

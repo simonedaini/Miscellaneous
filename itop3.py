@@ -1,8 +1,21 @@
-# "/home/simone/Scrivania/traceroute.txt"
+# Trace Preservation: 2 links cannot appear in the same path
+# Distance Preservation: Distance between 2 monitors is consistent after the merge
+# Link Endpoint Compatibility: Check the table to see if two links have compatible type (care reversed and type R)
+
+# 1) Identify all the valid merge options for each link, according to the 3 rules above
+# 2) Select Ei with the fewest merging options and then Ej which has the fewest merging options out of the links with witch Ei can be merged
+# 3) Check compatibility again because it might be changed by previous merges
+# 4) Check each path containing one of the two links to make sure it will be coherent after the merge.
+# 5) Merging Ej into Ei:
+#       - All paths containing Ej are modified to contain Ei
+#       - The set of link merging options for Ei are changed as the intersection between the ones of Ei and the ones of Ej
+#       - Any link that could have been merged with both Ei and Ej retain their merge option with Ei and the merge option with Ej is removed
+#       - Any link which had a merge option with either Ei or Ej but not both have that option removed
+#       - Change the endpoint classes of Ei according to the table. The link with the most specialized endpoint determines the class of the resulting endpoint
 
 
-# importing the module
 from heapq import merge
+import os
 import re
 import networkx as nx
 import matplotlib.pyplot as plt
@@ -10,35 +23,30 @@ from networkx.algorithms.threshold import shortest_path_length
 from networkx.classes.graph import Graph
 from pandas_ods_reader import read_ods
 from termcolor import colored
-import ast
 import sys
-import random
-
-hid_counter = 1
-b_counter = 1
-a_counter = 1
-nc_counter = 1
-monitors = []
 
 
 
-A = "1.1.1.1"
-E = "2.2.2.2"
-F = "3.3.3.3"
-G = "4.4.4.4"
-I = "5.5.5.5"
-C = "6.6.6.6"
+
+# ******************************************************************************************************************#
+#                                                                                                                   #
+#                                               Virtual topology methods                                            #
+#                                                                                                                   #
+# ******************************************************************************************************************#
 
 
 
-def read_trace(host1, host2):
+def read_trace(folder_path, network_public_ip, host1, host2):
     global monitors
     path = []
 
     pattern = re.compile("\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}")
-
-    file_name = '/home/simone/Scrivania/monitors/{}-{}.txt'.format(host1, host2)
-    f = open(file_name)
+    file_name = "{}traceroutes/{}/{}-{}".format(folder_path, network_public_ip, host1, host2)
+    # file_name = '/home/simone/Scrivania/monitors/{}-{}.txt'.format(host1, host2)
+    try:
+        f = open(file_name)
+    except:
+        print("File {} not found".format(file_name))
     lines = f.readlines()
 
     for i in range(0, len(lines)):
@@ -51,7 +59,7 @@ def read_trace(host1, host2):
                     monitors.append(ip)
                 router = {
                     "type": "R",
-                    "ip": eval(host1)
+                    "ip": host1
                 }
                 path.append(router)
         else:
@@ -123,8 +131,8 @@ def change_labels(path: list):
 
     return path
 
-def create_path(host1, host2, distance):
-    path = read_trace(host1, host2)
+def create_path(folder_path, network_public_ip, host1, host2, distance):
+    path = read_trace(folder_path, network_public_ip, host1, host2)
     path = trace_to_path(path)
 
     block = blocking_index(path)
@@ -132,9 +140,8 @@ def create_path(host1, host2, distance):
         path = change_labels(path)
         return path
     else:
-        inverse = read_trace(host2, host1)
+        inverse = read_trace(folder_path, network_public_ip, host2, host1)
         inverse = trace_to_path(inverse)
-
         for i in range(distance + 1 - len(path) - len(inverse)):
             router = {
                 "type": "HID",
@@ -172,28 +179,29 @@ def draw_graph(G):
     nx.draw(G, pos, with_labels = True)
     plt.show()
 
-def save_graph(G, name):
+def save_graph(folder_path, network_public_ip, G, name):
     plt.clf()
     pos = nx.circular_layout(G)
     nx.draw(G, pos, with_labels = True)
-    plt.savefig("/home/simone/Scrivania/monitors/results/{}".format(name))
+
+    file_name = folder_path + "results/" + network_public_ip + "/" + name
+    try:
+        os.makedirs(os.path.dirname(file_name), exist_ok=True)
+    except Exception as e:
+        print(e)
+
+    plt.savefig(file_name)
 
 
 
-# Trace Preservation: 2 links cannot appear in the same path
-# Distance Preservation: Distance between 2 monitors is consistent after the merge
-# Link Endpoint Compatibility: Check the table to see if two links have compatible type (care reversed and type R)
 
-# 1) Identify all the valid merge options for each link, according to the 3 rules above
-# 2) Select Ei with the fewest merging options and then Ej which has the fewest merging options out of the links with witch Ei can be merged
-# 3) Check compatibility again because it might be changed by previous merges
-# 4) Check each path containing one of the two links to make sure it will be coherent after the merge.
-# 5) Merging Ej into Ei:
-#       - All paths containing Ej are modified to contain Ei
-#       - The set of link merging options for Ei are changed as the intersection between the ones of Ei and the ones of Ej
-#       - Any link that could have been merged with both Ei and Ej retain their merge option with Ei and the merge option with Ej is removed
-#       - Any link which had a merge option with either Ei or Ej but not both have that option removed
-#       - Change the endpoint classes of Ei according to the table. The link with the most specialized endpoint determines the class of the resulting endpoint
+
+# ******************************************************************************************************************#
+#                                                                                                                   #
+#                                               Merge topology methods                                              #
+#                                                                                                                   #
+# ******************************************************************************************************************#
+
 
 
 def get_matrix(file_name):
@@ -334,23 +342,13 @@ def trace_preservation(G: Graph, link1, link2):
     return True
 
 
-# def distance_preservation(old_G, new_G):
-#     for m1 in monitors:
-#         for m2 in monitors:
-#             if m1 != m2:
-#                 if nx.shortest_path_length(old_G, m1, m2) != nx.shortest_path_length(new_G, m1, m2):
-#                     print("Shortest path {} -> {} = {} -> {}".format(m1, m2, nx.shortest_path(old_G, m1, m2), nx.shortest_path(new_G, m1, m2)))
-#                     return False
-#     return True
-
-def distance_preservation(old_G, new_G):
+def distance_preservation(distances, new_G):
     for m1 in monitors:
         for m2 in monitors:
             if m1 != m2:
                 key = "{}-{}".format(m1, m2)
                 if key in distances:
                     if nx.shortest_path_length(new_G, m1, m2) != distances[key]:
-                        print("Shortest path {} -> {} = {} -> {}".format(m1, m2, nx.shortest_path_length(new_G, m1, m2), distances[key]))
                         return False
     return True
 
@@ -462,11 +460,8 @@ def merge_links_in_graph(G: Graph, link1, link2, new_link):
 
 
 def substitute_edge(G, link1, link2, new_link):
-    # TODO Check side effects
-
     copy = G.copy()
     
-
     adj1 = copy.adj[link1[0]]
     adj2 = copy.adj[link1[1]]
     adj3 = copy.adj[link2[0]]
@@ -504,7 +499,7 @@ def reverse(edge):
     return (edge[1], edge[0])
 
 
-def create_merge_options(G: Graph):
+def create_merge_options(distances, G: Graph):
     options = {}
 
     for e1 in G.edges:
@@ -515,7 +510,7 @@ def create_merge_options(G: Graph):
                         alternatives = merged_link(e1, e2)
                         for merged in alternatives:
                             G2 = merge_links_in_graph(G, e1, e2, merged)
-                            if G2 != None and distance_preservation(G, G2):
+                            if G2 != None and distance_preservation(distances, G2):
                                 if e1 not in options:
                                     options[e1] = []
                                 if e2 not in options[e1]:
@@ -591,7 +586,6 @@ def update_merge_options(options, e1, e2, merged, association):
     if intersection != []:
         copy[merged] = intersection       
 
-    print_options(copy)
     return copy
 
 def remove_failed_option(options, e1, e2):
@@ -636,69 +630,98 @@ def print_options(options):
         print("\t{} = {}".format(opt, options[opt]))
 
 
-# A = 1.1.1.1
-# E = 2.2.2.2
-# F = 3.3.3.3
-# G = 4.4.4.4
-# I = 5.5.5.5
-# C = 6.6.6.6
 
-paths = []
+
+hid_counter = 1
+b_counter = 1
+a_counter = 1
+nc_counter = 1
+
+monitors = []
 distances = {}
-distances["1.1.1.1-2.2.2.2"] = 4
-distances["1.1.1.1-3.3.3.3"] = 3
-distances["1.1.1.1-4.4.4.4"] = 2
-distances["1.1.1.1-5.5.5.5"] = 2
-distances["2.2.2.2-3.3.3.3"] = 3
-distances["2.2.2.2-4.4.4.4"] = 4
-distances["4.4.4.4-5.5.5.5"] = 2
 
 
-paths.append(create_path("A", "E", 4))
-paths.append(create_path("A", "F", 3))
-paths.append(create_path("A", "G", 2))
-paths.append(create_path("A", "I", 2))
-paths.append(create_path("E", "F", 3))
-paths.append(create_path("E", "G", 4))
-paths.append(create_path("G", "I", 2))
+def get_distances(folder_path, network_public_ip):
+    global distances
+    distance_path = folder_path + "/distances/" + network_public_ip + "/"
+    for file in os.listdir(distance_path):
+        f = open(distance_path + file, "r")
+        lines = f.readlines()
+        for line in lines:
+            distances["{}-{}".format(file, line.split(" ")[0])] = int(line.split(" ")[1])
+    return distances
+
+def create_virtual_topology(folder_path, network_public_ip):
+
+    global distances
+    distances = get_distances(folder_path, network_public_ip)
+
+    paths = []
+    done = []
+    traceroutes_path = folder_path + "/traceroutes/" + network_public_ip + "/"
+    for file in os.listdir(traceroutes_path):
+        if ".txt" in file:
+            file = file.replace(".txt", "")
+        host1 = file.split("-")[0]
+        host2 = file.split("-")[1]
+        if "{}-{}".format(host1, host2) not in done and "{}-{}".format(host2, host1) not in done:
+            distance = distances["{}-{}".format(host1, host2)]
+            paths.append(create_path(folder_path, network_public_ip, host1, host2, distance))
+            done.append("{}-{}".format(host1, host2))
+
+    return paths
 
 
-M = get_matrix("/home/simone/Scrivania/Matrice.ods")
 
-G = create_graph(paths)
-draw_graph(G)
-save_graph(G, "VT")
+def iTop(compatibility_matrix_path, folder_path, network_public_ip):
+    paths = create_virtual_topology(folder_path, network_public_ip)
+    print("[+] Virtual Topology saved in {}".format(folder_path + "results/"))
+    M = get_matrix(compatibility_matrix_path)
 
-
-i = 1
-sync = i
-while True and sync == i:
-    options = create_merge_options(G)
-    print_options(options)
-    sync += 1
-    while options != {}:
-        print("\n\nIteration {}:\n".format(i))
-        i += 1
-        sync = i
-
-        e1 = get_edge_with_min_options(options)
-        e2 = get_option_with_min_options(options, e1)
-        merge_alternatives = merged_link(e1, e2)
-        merged = None
-        if len(merge_alternatives) == 1:
-            merged = merge_alternatives[0]
-            association = get_compatibility(e1, e2)
-            print("\tMerging {} with {} in {}".format(e1, e2, merged))
-            G2 = merge_links_in_graph(G, e1, e2, merged)
-            if G2 != None:
-                G = G2
-                options = update_merge_options(options, e1, e2, merged, association)
-            else:
-                options = remove_failed_option(options, e1, e2)
+    G = create_graph(paths)
+    # draw_graph(G)
+    save_graph(folder_path, network_public_ip, G, "1) VT")
 
 
-draw_graph(G)
-save_graph(G, "MT")
+
+    i = 1
+    sync = i
+    while True and sync == i:
+        options = create_merge_options(distances, G)
+        # print_options(options)
+        sync += 1
+        while options != {}:
+            i += 1
+            sync = i
+
+            e1 = get_edge_with_min_options(options)
+            e2 = get_option_with_min_options(options, e1)
+            merge_alternatives = merged_link(e1, e2)
+            merged = None
+            if len(merge_alternatives) == 1:
+                merged = merge_alternatives[0]
+                association = get_compatibility(e1, e2)
+                # print("\tMerging {} with {} in {}".format(e1, e2, merged))
+                G2 = merge_links_in_graph(G, e1, e2, merged)
+                if G2 != None:
+                    G = G2
+                    options = update_merge_options(options, e1, e2, merged, association)
+                else:
+                    options = remove_failed_option(options, e1, e2)
+
+
+    # draw_graph(G)
+    save_graph(folder_path, network_public_ip, G, "2) MT")
+    print("[+] Merged Topology saved in {}".format(folder_path + "results/"))
+
+# compatibility_matrix_path = "/home/simone/Scrivania/Matrice.ods"
+# network_public_ip = "79.41.25.238"
+# folder_path = "/home/simone/Scrivania/monitors/"
+
+# iTop(compatibility_matrix_path, folder_path, network_public_ip)
+
+
+
 
 # Vedere solo IP
 # sudo tcpdump  -n -c 5 ip | awk '{ print gensub(/(.*)\..*/,"\\1","g",$3), $4, gensub(/(.*)\..*/,"\\1","g",$5) }'
